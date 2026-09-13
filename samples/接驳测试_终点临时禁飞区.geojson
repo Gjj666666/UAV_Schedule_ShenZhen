@@ -1,0 +1,25 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "kind": "no_fly",
+        "name": "接驳测试-深圳湾终点临时禁飞区",
+        "description": "仅用于在货物取走后阻断原终点，触发携货安全交接测试"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [113.9418, 22.5180],
+            [113.9466, 22.5180],
+            [113.9466, 22.5226],
+            [113.9418, 22.5226],
+            [113.9418, 22.5180]
+          ]
+        ]
+      }
+    }
+  ]
+}

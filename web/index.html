@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>深圳低空多无人机智能调度 Demo</title>
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.144/Build/Cesium/Cesium.js"></script>
+  <link rel="stylesheet" href="https://cesium.com/downloads/cesiumjs/releases/1.144/Build/Cesium/Widgets/widgets.css" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div id="cesiumContainer"></div>
+
+  <aside class="panel left-panel">
+    <div class="title">深圳低空智能调度</div>
+    <div class="subtitle">模拟城市物流无人机：多任务、优先级、动态调度、冲突检测、自定义城市数据和异常事件。</div>
+
+    <details open>
+      <summary>① 地图与城市数据</summary>
+      <label>Cesium ion Token</label>
+      <input id="ionToken" type="password" placeholder="底图 / 地点搜索 / OSM 3D Buildings 使用" />
+      <div class="row">
+        <button id="focusShenzhenBtn">回到深圳</button>
+      </div>
+      <div id="baseMapStatus" class="status">固定使用 Cesium ion World Imagery，正在自动加载…</div>
+      <label>建筑显示 / 城市数据模式</label>
+      <select id="dataMode">
+        <option value="shenzhen" selected>深圳本地建筑 Height（全城动态3D + 规划）</option>
+        <option value="cesium">Cesium OSM 3D Buildings（显示；规划仍使用本地建筑）</option>
+        <option value="custom">深圳本地建筑 + 自定义 GeoJSON 约束</option>
+      </select>
+      <div class="row">
+        <button id="loadOsmBuildingsBtn">加载 OSM 3D Buildings</button>
+      </div>
+      <div class="hint">规划器始终使用深圳 WGS84 建筑 Shapefile 的 Height。选择“本地建筑”后，建筑不再只沿任务航线加载：摄像机移动到深圳任意区域都会按当前视野动态加载真实 3D 建筑；近距离显示全部低矮建筑，城市总览使用 LOD 避免一次加载 74.5 万栋导致浏览器卡死。</div>
+      <div id="buildingDatasetStatus" class="status">正在读取深圳建筑数据集信息…</div>
+      <div class="upload-box">
+        <label>自定义数据类型</label>
+        <select id="uploadKind">
+          <option value="auto">自动识别 kind</option>
+          <option value="building">建筑</option>
+          <option value="no_fly">禁飞区</option>
+          <option value="landing_site">起降/应急点</option>
+        </select>
+        <input id="geojsonFile" type="file" accept=".geojson,.json,application/json" />
+        <div class="row">
+          <button id="uploadBtn" class="primary">上传并加载</button>
+          <button id="clearCustomBtn">清空自定义数据</button>
+        </div>
+        <div id="dataStatus" class="status">可额外上传 GeoJSON 禁飞区/建筑/起降点，与深圳建筑库叠加。</div>
+      </div>
+    </details>
+
+    <details open>
+      <summary>② 无人机机队</summary>
+      <div class="two-col">
+        <div>
+          <label>无人机数量</label>
+          <input id="fleetCount" type="number" min="1" max="1000" value="6" />
+        </div>
+        <div>
+          <label>仿真速度</label>
+          <select id="speedFactor">
+            <option value="1">1×</option>
+            <option value="4" selected>4×</option>
+            <option value="10">10×</option>
+            <option value="20">20×</option>
+          </select>
+        </div>
+      </div>
+      <label class="check"><input id="autoEvents" type="checkbox" /> 自动随机模拟少量飞行事件</label>
+      <label>视角跟随无人机（追尾视角）</label>
+      <div class="follow-row">
+        <select id="followUav">
+          <option value="">不跟随 / 自由视角</option>
+        </select>
+        <button id="stopFollowBtn" type="button">取消跟随</button>
+      </div>
+      <div id="followStatus" class="status">自由视角；跟随 UAV 后可左键 360° 环绕、滚轮缩放，镜头遇到已加载的本地建筑会自动抬升避让。</div>
+      <div class="row">
+        <button id="initFleetBtn">初始化机队</button>
+        <button id="startSimBtn" class="primary">开始调度</button>
+        <button id="pauseSimBtn">暂停</button>
+        <button id="resetBtn" class="danger">重置</button>
+      </div>
+      <div class="hint">标准模拟机：最大载重 5kg、巡航约 15m/s、最高约 20m/s。路径规划会比较多个高度层，并使用真实建筑 Height + 15m 安全余量。</div>
+    </details>
+
+    <details open>
+      <summary>③ AI 智能任务助手</summary>
+      <div class="ai-box">
+        <div class="ai-heading"><span>自然语言任务录入</span><i>AI 草案 · 人工确认</i></div>
+        <textarea id="aiTaskInput" rows="4" placeholder="例如：从深圳北站送2公斤急救药品到深圳市民中心，30分钟内送达，优先级紧急。">从深圳北站送2公斤急救药品到深圳市民中心，30分钟内送达，优先级紧急。</textarea>
+        <div class="row">
+          <button id="aiParseTaskBtn" class="primary" type="button">AI 理解任务</button>
+          <button id="aiCreateTaskBtn" type="button" disabled>确认并创建任务</button>
+        </div>
+        <div id="aiServiceStatus" class="status">正在检查 AI 服务配置…</div>
+        <div id="aiDraftPreview" class="ai-preview" hidden></div>
+        <div class="hint">大模型只理解地点名称和任务参数，不生成坐标、不直接调度。确认时使用高德深圳 POI 或 Cesium 获取候选位置，也可地图选点，并经过原有规则校验。</div>
+      </div>
+    </details>
+
+    <details open>
+      <summary>④ 批量导入飞行任务</summary>
+      <div class="batch-box">
+        <label>任务表格文件</label>
+        <input id="batchTaskFile" type="file" accept=".xlsx,.csv,.json,application/json,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+        <div class="row">
+          <button id="batchParseFileBtn" class="primary" type="button">解析表格文件</button>
+          <button id="downloadBatchTemplateBtn" type="button">下载 CSV 模板</button>
+        </div>
+        <label>或一次输入多条自然语言任务</label>
+        <textarea id="batchAiTaskInput" rows="6" placeholder="每行一条或使用编号，例如：&#10;1. 从深圳北站送2公斤急救药品到人才公园，30分钟，紧急。&#10;2. 从宝安中心送1公斤文件到市民中心，45分钟，高优先级。"></textarea>
+        <button id="batchAiParseBtn" class="primary wide" type="button">AI 批量识别并解析地点</button>
+        <div id="batchTaskStatus" class="status">支持 XLSX、CSV、JSON，单次最多200条；AI批量解析最多50条。</div>
+        <div id="batchTaskPreview" class="batch-preview" hidden></div>
+        <button id="batchCreateBtn" class="primary wide" type="button" disabled>确认并批量初始化有效任务</button>
+        <div class="hint">名称地点会通过高德优先、Cesium备用自动选择第一个深圳候选，并在预览中显示最终名称和坐标；请确认后再初始化。表格也可以直接填写WGS84经纬度。</div>
+      </div>
+    </details>
+
+    <details open>
+      <summary>⑤ 手动新建配送任务</summary>
+      <div class="geocode-monitor">
+        <button id="testGeocoderBtn" type="button">检测高德调用</button>
+        <div id="geocodeCallStatus" class="status">高德尚未进行实际调用检测。</div>
+      </div>
+      <label>出发地 / 取货点</label>
+      <div class="location-input-row">
+        <input id="originInput" value="深圳北站" placeholder="地点名称或 经度,纬度" />
+        <button id="pickOriginBtn" type="button">地图选点</button>
+      </div>
+      <label>目的地</label>
+      <div class="location-input-row">
+        <input id="destInput" value="深圳市民中心" placeholder="地点名称或 经度,纬度" />
+        <button id="pickDestBtn" type="button">地图选点</button>
+      </div>
+      <div class="two-col">
+        <div>
+          <label>运送目标</label>
+          <select id="deliveryType">
+            <option value="MEDICAL">医疗物资</option>
+            <option value="EMERGENCY">应急物资</option>
+            <option value="PARCEL" selected>普通包裹</option>
+            <option value="COLD_CHAIN">冷链物资</option>
+            <option value="DOCUMENT">文件</option>
+          </select>
+        </div>
+        <div>
+          <label>紧要程度</label>
+          <select id="priority">
+            <option value="EMERGENCY">紧急</option>
+            <option value="HIGH">高</option>
+            <option value="NORMAL" selected>普通</option>
+            <option value="LOW">低</option>
+          </select>
+        </div>
+      </div>
+      <div class="three-col">
+        <div><label>重量 kg</label><input id="payloadKg" type="number" min="0.1" max="5" step="0.1" value="1.5" /></div>
+        <div><label>时限 min</label><input id="deadline" type="number" min="10" max="240" value="45" /></div>
+        <div><label>首选航高 m</label><select id="cruiseAlt"><option>60</option><option selected>80</option><option>100</option><option>120</option></select></div>
+      </div>
+      <button id="addTaskBtn" class="primary wide">解析地点并加入任务队列</button>
+      <div id="taskFormStatus" class="status">可以连续添加多个任务，再点击“开始调度”。</div>
+    </details>
+
+    <details>
+      <summary>⑥ 飞行事件模拟</summary>
+      <label>目标无人机</label>
+      <select id="eventUav"><option value="">自动选择飞行中的无人机</option></select>
+      <label>事件类型</label>
+      <select id="eventType">
+        <option value="wind">阵风 / 降速</option>
+        <option value="comm_loss">通信短时丢失 / 悬停</option>
+        <option value="low_battery">低电量告警</option>
+        <option value="temp_no_fly">临时禁飞区 / 动态重规划</option>
+      </select>
+      <button id="triggerEventBtn" class="warn wide">触发模拟事件</button>
+      <div id="eventStatus" class="status">用于演示异常处置，不控制真实无人机。</div>
+    </details>
+  </aside>
+
+  <aside class="panel right-panel">
+    <div class="dashboard-title">运行态势</div>
+    <div id="weatherCard" class="weather-card weather-loading">
+      <div id="weatherIcon" class="weather-icon" aria-hidden="true">🌤️</div>
+      <div class="weather-content">
+        <div class="weather-heading">
+          <span id="weatherCity">深圳市实时天气</span>
+          <span id="weatherDispatchBadge" class="weather-badge">获取中</span>
+        </div>
+        <div id="weatherSummary" class="weather-summary">正在获取天气数据…</div>
+        <div id="weatherDetails" class="weather-details">温度 -- · 湿度 -- · 风力 --</div>
+        <div id="weatherUpdatedAt" class="weather-updated">尚未更新</div>
+      </div>
+      <button id="refreshWeatherBtn" class="weather-refresh" type="button" title="立即刷新深圳天气" aria-label="立即刷新深圳天气">↻</button>
+    </div>
+    <div id="weatherSimulationControls" class="weather-simulation-controls" hidden>
+      <select id="weatherSimulationPreset" aria-label="运行时模拟天气">
+        <option value="CLEAR">模拟：晴天恢复</option>
+        <option value="LIGHT_RAIN">模拟：小雨（在途减速）</option>
+        <option value="THUNDERSTORM">模拟：雷阵雨（应急撤离）</option>
+        <option value="GALE">模拟：晴 / 7级风（应急撤离）</option>
+      </select>
+      <button id="applyWeatherSimulationBtn" type="button">立即应用</button>
+    </div>
+    <div class="section-title airspace-heading">
+      <span>禁飞区与空域审批</span>
+      <span id="airspaceSummary" class="airspace-summary">正在加载</span>
+    </div>
+    <div id="airspaceApprovalPanel" class="airspace-approval-panel">
+      <div class="airspace-empty">正在读取深圳空域规则…</div>
+    </div>
+    <div class="metrics">
+      <div class="metric"><span>无人机</span><b id="mUavs">0</b></div>
+      <div class="metric"><span>飞行中</span><b id="mBusy">0</b></div>
+      <div class="metric"><span>等待任务</span><b id="mWaiting">0</b></div>
+      <div class="metric"><span>已完成</span><b id="mDone">0</b></div>
+    </div>
+
+    <div id="dispatchPlanningCard" class="dispatch-planning-card idle">
+      <div class="dispatch-planning-head">
+        <span id="dispatchPlanningTitle">调度进度</span>
+        <b id="dispatchPlanningPercent">0%</b>
+      </div>
+      <div class="dispatch-planning-track" role="progressbar" aria-label="调度规划进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <i id="dispatchPlanningBar"></i>
+      </div>
+      <div id="dispatchPlanningDetail" class="dispatch-planning-detail">当前没有正在计算的调度方案。</div>
+    </div>
+
+    <div class="section-title dispatch-route-heading">
+      <span>实时调度路线</span>
+      <span id="dispatchRouteSummary" class="dispatch-route-summary">当前空闲</span>
+    </div>
+    <div id="dispatchRoutePanel" class="dispatch-route-panel">
+      <div class="dispatch-route-empty">当前没有需要调度或执行的任务路线。</div>
+    </div>
+
+    <div class="section-title">任务队列</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>任务</th><th>目标/优先级</th><th>无人机</th><th>状态</th></tr></thead>
+        <tbody id="taskRows"></tbody>
+      </table>
+    </div>
+
+    <div class="section-title">无人机状态</div>
+    <div class="table-wrap uav-table">
+      <table>
+        <thead><tr><th>UAV</th><th>状态</th><th>电量</th><th>高度</th></tr></thead>
+        <tbody id="uavRows"></tbody>
+      </table>
+    </div>
+
+    <div class="section-title flight-log-heading">
+      <span>已完成飞行日志</span>
+      <a id="downloadFlightSummary" class="mini-link" href="/api/flight-logs/summary.csv" download>下载 CSV 汇总</a>
+    </div>
+    <div class="table-wrap flight-log-table">
+      <table>
+        <thead><tr><th>任务</th><th>航程/耗电</th><th>执行信息</th><th>日志</th></tr></thead>
+        <tbody id="flightLogRows"><tr><td colspan="4">暂无已完成飞行日志</td></tr></tbody>
+      </table>
+    </div>
+    <div id="connectionStatus" class="connection">连接调度服务器中…</div>
+  </aside>
+
+  <div class="legend">
+    <span><i class="dot idle"></i>空闲</span>
+    <span><i class="dot busy"></i>执行任务</span>
+    <span><i class="line pickup-route"></i>起飞 → 取货</span>
+    <span><i class="line delivery-route"></i>取货 → 终点</span>
+    <span><i class="line trail"></i>已飞轨迹</span>
+    <span><i class="dot uav-base"></i>无人机基地</span>
+    <span><i class="dot swap-station"></i>换电站</span>
+    <span><i class="block nofly"></i>绝对禁飞区</span>
+    <span><i class="block controlled"></i>审批管制区</span>
+  </div>
+
+  <dialog id="locationPickerDialog" class="location-dialog">
+    <div class="location-dialog-head">
+      <div>
+        <h3 id="locationPickerTitle">确认地点</h3>
+        <p id="locationPickerQuery"></p>
+      </div>
+      <button id="locationPickerCancel" type="button">取消</button>
+    </div>
+    <div id="locationCandidateList" class="location-candidates"></div>
+    <div class="hint">坐标已统一为 WGS84；请选择与实际任务地点一致的结果。</div>
+  </dialog>
+
+  <script src="/static/config.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
