@@ -1,25 +1,3 @@
-{
-  "type": "FeatureCollection",
-  "features": [
-    {
-      "type": "Feature",
-      "properties": {
-        "kind": "no_fly",
-        "name": "接驳测试-深圳湾终点临时禁飞区",
-        "description": "仅用于在货物取走后阻断原终点，触发携货安全交接测试"
-      },
-      "geometry": {
-        "type": "Polygon",
-        "coordinates": [
-          [
-            [113.9418, 22.5180],
-            [113.9466, 22.5180],
-            [113.9466, 22.5226],
-            [113.9418, 22.5226],
-            [113.9418, 22.5180]
-          ]
-        ]
-      }
-    }
-  ]
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:3c34af3b0222237246ca35a9d2525a82f0cb4d06023512f45039c3388504e088
+size 591
